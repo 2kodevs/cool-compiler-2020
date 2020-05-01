@@ -1,7 +1,9 @@
 from sys import exit
-from core.cmp.CoolUtils import tokenize_text, CoolParser
-from core.cmp.lex import CoolLexer
 from pprint import pprint
+from core.cmp.visitors import *
+from core.cmp.lex import CoolLexer
+from core.cmp.evaluation import evaluate_reverse_parse
+from core.cmp.CoolUtils import tokenize_text, CoolParser
 
 
 def main(args):
@@ -10,9 +12,9 @@ def main(args):
         with open(args.file, 'r') as fd:
             code = fd.read()
     except:
-        print(f"(0,0) - CompilerError: file {args.file} not found") #TODO: Customize errors
+        print(f"(0,0) - CompilerError: file {args.file} not found")
         exit(1)
-
+    
     # Lexer
     lexer = CoolLexer()
     
@@ -33,15 +35,32 @@ def main(args):
         exit(1)
 
     # Parse
-    parse, (failure, token) = CoolParser(tokens)
+    parsedData, (failure, token) = CoolParser(tokens, get_shift_reduce=True)
     
     if failure:
-        print(f"({token.row},{token.column}) - SyntacticError: Unexpected token {token}") #TODO: Use correct line and column
+        print(f"({token.row},{token.column}) - SyntacticError: Unexpected token {token.lex}")
         exit(1)
 
-    # Comming soon pipeline steps
-    #print(parse)
+    # AST
+    parse, operations = parsedData
+    ast = evaluate_reverse_parse(parse, operations, tokens)
+    errors = []
 
+    # Collect user types
+    collector = TypeCollector()
+    collector.visit(ast)
+    context = collector.context
+    errors.extend(collector.errors)
+
+    # Building types
+    builder = TypeBuilder(context)
+    builder.visit(ast)
+    errors.extend(builder.errors)
+    
+    if errors:
+        for (msg, token) in errors:
+            print(f"({token.row},{token.column}) - SemanticError: {msg}")
+        exit(1)
 
     exit(0)
 
