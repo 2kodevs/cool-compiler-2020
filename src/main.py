@@ -1,10 +1,10 @@
 from sys import exit
-from pprint import pprint
-from core.cmp.visitors import *
-from core.cmp.lex import CoolLexer
-from core.cmp.evaluation import evaluate_reverse_parse
-from core.cmp.CoolUtils import tokenize_text, CoolParser
 
+from core.cmp import evaluate_reverse_parse, CoolParser
+
+from core import CoolLexer
+from core import TypeBuilder, TypeCollector, TypeVerifier, InferenceVisitor, COOLToCILVisitor, CILToMIPSVisitor
+from core import PrintVisitor, FormatVisitor, get_formatter
 
 def main(args):
     # Read code
@@ -58,15 +58,46 @@ def main(args):
     errors.extend(builder.errors)
 
     # Checking types
-    checker = TypeChecker(context)
-    checker.visit(ast)
-    errors.extend(checker.errors)
+    inferencer = InferenceVisitor(context)
+    while inferencer.visit(ast)[0]: pass
+    inferencer.errors.clear()
+    _, scope = inferencer.visit(ast)
+    errors.extend(inferencer.errors)
+
+    verifier = TypeVerifier(context)
+    verifier.visit(ast)
+    for e in verifier.errors:
+        if not e in errors:
+            errors.append(e)
     
     if errors:
-        for (msg, token) in errors:
-            print(f"({token.row},{token.column}) - SemanticError: {msg}")
+        for (ex, token) in errors:
+            print(f"({token.row},{token.column}) - {type(ex).__name__}: {str(ex)}")
         exit(1)
+    # else:
+    #     print(FormatVisitor().visit(ast))
 
+    #CIL Transformation
+    cool_to_cil = COOLToCILVisitor(context)
+    cil_ast = cool_to_cil.visit(ast, scope)
+    # formatter = get_formatter()
+    # ast_cil = formatter(cil_ast)
+    # print(ast_cil)
+
+    cil_to_mips = CILToMIPSVisitor()
+    mips_ast = cil_to_mips.visit(cil_ast)
+    printer = PrintVisitor()
+    mips_code = printer.visit(mips_ast)
+
+    out_file = args.file.split(".")
+    out_file[-1] = "mips"
+    out_file = ".".join(out_file)
+
+    with open(out_file, 'w') as f:
+        f.write(mips_code)
+        with open("./core/visitors/mips/mips_lib.asm") as f2:
+            f.write("".join(f2.readlines()))
+    
     exit(0)
 
 
@@ -74,8 +105,9 @@ if __name__ == "__main__":
     import argparse 
 
     parser = argparse.ArgumentParser(description='CoolCompiler pipeline')
-    parser.add_argument('-f', '--file', type=str, default='code.cl', help='node address')
+    parser.add_argument('-f', '--file', type=str, default='code.cl', help='file to read')
 
     args = parser.parse_args()
     main(args)
 
+    # test()
